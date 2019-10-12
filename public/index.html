@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Triangle Family Trees</title>
+    <meta charset="utf-8" />
+  </head>
+  <body>
+    <h1>Triangle Family Trees</h1>
+
+    <!--Add buttons to initiate auth sequence and sign out-->
+    <button id="authorize_button" style="display: none;">Authorize</button>
+    <button id="signout_button" style="display: none;">Sign Out</button>
+
+    <pre id="content"></pre>
+
+    <!-- <svg width="1000" height="500" id="triangletree"></svg> -->
+
+    <script src="https://d3js.org/d3.v5.min.js"></script>
+
+    <script type="text/javascript">
+
+      /**
+       * Append a pre element to the body containing the given message
+       * as its text node. Used to display the results of the API call.
+       *
+       * @param {string} message Text to be placed in pre element.
+       */
+      function appendPre(message) {
+        var pre = document.getElementById('content');
+        var textContent = document.createTextNode(message + '\n');
+        pre.appendChild(textContent);
+      }
+
+  function activeMembers(members) {
+    return members.filter(d => d["Active"] === "y").length;
+  }
+// curl 'https://sheets.googleapis.com/v4/spreadsheets/1_gLjUmGtX8VQjGu8HK_Y-f1OfhQIRJRxbK4qQCbuOD8/values/Sheet1?key=AIzaSyALmtp8EcrazRfoOjYeYFUpWzrTOkKSRtA' -vvv
+
+	appendPre("preparing to fetch");
+
+	let f = fetch('https://sheets.googleapis.com/v4/spreadsheets/1_gLjUmGtX8VQjGu8HK_Y-f1OfhQIRJRxbK4qQCbuOD8/values/Sheet1?key=AIzaSyALmtp8EcrazRfoOjYeYFUpWzrTOkKSRtA');
+
+	f.then((data) => {
+		appendPre("fetch succeeded");
+    data.json().then((value) => {
+      try {
+        let families = processData(value.values);
+
+        families.sort((a, b) => {
+          a = activeMembers(a.members);
+          b = activeMembers(b.members);
+
+          if (a > b) {
+            return -1;
+          }
+          if (a < b) {
+            return 1;
+          }
+          return 0;
+        });
+
+        // renderLegend();
+
+        for (let f of families) {
+          try {
+            renderTree(f);
+          } catch (e) {
+            appendPre(`couldn't render ${f.name}: ${e}`);
+          }
+        }
+        // families.forEach(f => renderTree(f));
+      } catch (e) {
+        appendPre(`couldn't process data: ${e}`);
+      }
+
+    });
+  }, (err) => appendPre(`fetch failed: ${err}`));
+
+  function renderLegend() {
+    let svg = d3.select("body")
+      .append("svg")
+      .attr("height", 50)
+      .attr("width", 300)
+      .append("g")
+      .attr("transform", "translate(0, 25)");
+
+    svg.append("circle")
+      .attr("fill", "#c3c3c3");
+
+    svg.append("text").text("Active");
+
+    svg.append("circle")
+      .attr("fill", "grey");
+  }
+
+  function renderTree(family) {
+    let name = family.name,
+        data = family.members;
+
+    let root = d3.stratify()
+      .id(d => d["Name"])
+      .parentId(d => d["Big"])(data);
+
+    let activeCount = data.filter(d => d["Active"] === 'y').length;
+
+    d3.select("body").append("h2").text(family.name);
+
+    d3.select("body").append("p")
+      .text(`${activeCount} active, ${data.length} total`);
+
+    const margin = {top: 20, right: 50, bottom: 20, left: 175};
+
+    let treeWidth = 175 * (root.height + 1);
+
+    let svg = d3.select("body")
+      .append("section")
+      .attr("style", "overflow-x: scroll;")
+      .append("svg")
+      .attr("width", margin.left + treeWidth + margin.right)
+      .attr("height", 350)
+      .attr("id", name)
+      .append("g")
+      .attr("transform", `translate(${margin.left},${margin.top})`);
+
+    let tree = d3.tree().size([350 - margin.top - margin.bottom, treeWidth])(root);
+
+    let nodes = tree.descendants();
+    let links = tree.descendants().slice(1);
+
+    svg.selectAll(".link")
+      .data(links)
+      .enter()
+      .append("path")
+      // .attr("class", d => d.data.Team)
+      .classed("link", true)
+      .attr("d", d => diagonal(d, d.parent))
+      .attr("stroke-width", 3)
+      .attr("stroke", "#c3c3c3")
+      .attr("fill", "none");
+
+    let nodeGroups = svg.selectAll(".node")
+      .data(nodes)
+      .enter()
+      .append("g")
+      // .attr("class", d => d.data.Team)
+      .classed("node", true)
+      .attr("transform", d => `translate(${d.y}, ${d.x})`)
+      // .classed("winner", d => { return })
+
+    nodeGroups.append("circle")
+      .attr("r", 10)
+      .attr("fill", d => d.data.Active === "y" ? "#8a1538" : "grey");
+
+    nodeGroups
+      .append("text")
+      .attr("class", "label")
+      .attr("dy", "-0.35em")
+      .attr("x", d => true || d.children ? -13 : 13)
+      .attr("text-anchor", d => true || d.children ? "end" : "start")
+      .text(d => d.data.Name);
+  }
+
+  function diagonal(s, d) {
+    return `M ${s.y} ${s.x}
+      C ${(s.y + d.y) / 2} ${s.x},
+      ${(s.y + d.y) / 2} ${d.x},
+      ${d.y} ${d.x}`;
+  }
+
+  function collectFromFlattened(start, data) {
+
+  }
+
+  function processData(data) {
+    data = data.slice(1).map((row) => {
+      let o = {};
+      row.forEach((cell, i) => {o[data[0][i]] = cell});
+      return o;
+    })//.map(d => { d.Family = null; return d; });
+
+    // debugger;
+
+    // markAsFamily()
+
+    let families = new Set(data.map(d => d["Family"]));
+
+    return Array.from(families).map(f => ({
+      name: f,
+      members: data.filter(d => d["Family"] === f)
+    }));
+  }
+
+    </script>
+
+  </body>
+</html>
